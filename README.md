@@ -20,7 +20,7 @@
   <strong>ContractDeployerBot:</strong> An advanced Node.js project designed to revolutionize how creators and communities interact with blockchain technology. This open-source Telegram Bot facilitates the tokenization of assets, enabling seamless and user-friendly engagement with blockchain for communities and creators.
 </p>
 
-<h2 align="center">🚀 Demo</h2>
+<h2 align="center">🚀 Demo Live Test without deploy !</h2>
 
 <p align="center">
   <a href="https://t.me/TokenDeployCreatorBot">Telegram Bot Demo</a>
