@@ -1,65 +1,85 @@
-# ContractDeployerBot
-🚀 Awesome list of open source - Advanced Node.js Project &amp; Smart contracts for tokenizing creators &amp; communities based Telegram Bot!✨
+<h1 align="center" id="title">🚀 Awesome List of Open Source - Advanced Node.js Project &amp; Smart Contracts for Tokenizing Creators &amp; Communities: Telegram Bot! ✨</h1>
 
+<p align="center">
+  <img src="https://i.redd.it/eti95tjbyb7a1.gif" alt="project-gif">
+</p>
 
-# ContractDeployerBot :rocket:
+<p align="center">
+  <img src="https://socialify.git.ci/likhonsible/ContractDeployerBot/image?description=1&amp;descriptionEditable=%F0%9F%9A%80%20Awesome%20list%20of%20open%20source%20-%20Advanced%20Node.js%20Smart%20contracts%20for%20tokenizing%20creators%20Telegram%20Bot!%E2%9C%A8&amp;font=Source%20Code%20Pro&amp;forks=1&amp;issues=1&amp;language=1&amp;logo=https%3A%2F%2Fpreview.redd.it%2Ftransparent-gifs-i-made-from-the-pok%25C3%25A9mon-anime-for-an-v0-1wxi2yjtxb7a1.gif%3Fwidth%3D640%26crop%3Dsmart%26auto%3Dwebp%26s%3Df1d66edb5e1deb160797b40562caabac8a7aca80&amp;name=1&amp;owner=1&amp;pattern=Charlie%20Brown&amp;pulls=1&amp;stargazers=1&amp;theme=Auto" alt="project-image">
+</p>
 
-Welcome to **ContractDeployerBot**, an advanced Node.js project designed to revolutionize the way creators and communities interact with blockchain technology. This open-source Telegram Bot facilitates the tokenization of assets, enabling communities and creators to engage with blockchain in a seamless and user-friendly manner.
+<p align="center">
+  <img src="https://img.shields.io/github/license/likhonsible/ContractDeployerBot" alt="license-badge">
+  <img src="https://img.shields.io/npm/l/npm" alt="npm-license-badge">
+  <img src="https://img.shields.io/github/downloads/likhonsible/ContractDeployerBot/total" alt="downloads-badge">
+  <img src="https://img.shields.io/github/package-json/dependency-version/likhonsible/ContractDeployerBot/dev/main/node/index.js" alt="node-version-badge">
+  <!-- Add more badges here -->
+</p>
 
-## About The Project :sparkles:
+<p id="description">
+  <strong>ContractDeployerBot:</strong> An advanced Node.js project designed to revolutionize how creators and communities interact with blockchain technology. This open-source Telegram Bot facilitates the tokenization of assets, enabling seamless and user-friendly engagement with blockchain for communities and creators.
+</p>
 
-ContractDeployerBot is at the forefront of integrating chatbot technology with blockchain functionalities. It allows users to deploy smart contracts directly through a Telegram Bot, making the process of tokenization accessible and straightforward. This project is ideal for creators looking to tokenize their assets and communities eager to explore the potentials of blockchain technology.
+<h2 align="center">🚀 Demo</h2>
 
-## Features :bulb:
+<p align="center">
+  <a href="https://t.me/TokenDeployCreatorBot">Telegram Bot Demo</a>
+</p>
 
-- **Telegram Bot Integration**: Interact with blockchain technology directly through Telegram, providing a seamless user experience.
-- **Smart Contract Deployment**: Easily deploy smart contracts for tokenizing assets, leveraging the power of Ethereum blockchain.
-- **Community Tokenization**: Empower communities and creators by enabling them to tokenize their assets and manage them efficiently.
-- **Advanced Node.js Techniques**: Built using modern and robust Node.js practices, ensuring high performance and scalability.
+<h2>🧐 Features</h2>
 
-## Getting Started :runner:
+<ul>
+  <li>Token Deploy Creator</li>
+  <li>Minting</li>
+  <li>User-friendly Interface</li>
+  <li>Community Tokenization</li>
+  <li>Advanced Node.js Techniques</li>
+</ul>
 
-To get a local copy up and running, follow these simple steps:
+<h2>🛠️ Installation Steps:</h2>
 
-1. Clone the repo:
-   ```bash
-   git clone https://github.com/likhonsible/ContractDeployerBot.git
+<ol>
+  <li>Install dependencies:</li>
 
-   
-Install NPM packages:
+  ```bash
+  npm install
+ <li>Enter your API keys in .env (refer to .env copy for necessary variables):</li>
 
 bash
 
-npm install
+npm start
 
-Enter your API keys in .env (refer to .env copy for necessary variables).
-Start the bot:
-
-bash
-
-    npm start
-
-How to Contribute :handshake:
-
-We welcome contributions from the community! Here's how you can contribute:
-
-    Fork the Project.
-    Create your Feature Branch (git checkout -b feature/YourFeature).
-    Commit your Changes (git commit -m 'Add some YourFeature').
-    Push to the Branch (git push origin feature/YourFeature).
-    Open a Pull Request.
-
-Support :heart:
-
-Show your support by ⭐️ starring the project! Forking and contributing also greatly appreciated.
-Donations :moneybag:
-
-Your donations help keep this project growing and improving:
-
-    ETH/BNB/ERC20/BEP20 Address: 0x00fC876d03172279E04CC30E5edCE103c3d23C1A (ETH/BSC network)
-
-License :page_with_curl:
-
-Distributed under the MIT License. See LICENSE for more information.
-Contact :email:
-    Project Link: https://github.com/likhonsible/ContractDeployerBot
+</ol>
+<h2>🍰 Contribution Guidelines:</h2>
+<p>
+  Contributions are welcome! Here's how to contribute:
+  <ol>
+    <li>Fork the Project</li>
+    <li>Create your Feature Branch (<code>git checkout -b feature/YourFeature</code>)</li>
+    <li>Commit your Changes (<code>git commit -m 'Add some YourFeature'</code>)</li>
+    <li>Push to the Branch (<code>git push origin feature/YourFeature</code>)</li>
+    <li>Open a Pull Request</li>
+  </ol>
+</p>
+<h2>💻 Built with</h2>
+<ul>
+  <li>Node.js</li>
+  <li>Artificial Intelligence</li>
+  <li>Web3</li>
+</ul>
+<h2>🛡️ License:</h2>
+<p>
+  This project is licensed under the MIT License. See <a href="https://github.com/likhonsible/ContractDeployerBot/blob/main/LICENSE">LICENSE</a> for more information.
+</p>
+<h2>💖 Like my work?</h2>
+<p>
+  Show your support by ⭐️ starring the project! Forking and contributing are also greatly appreciated.
+</p>
+<p>
+  Your donations help keep this project growing and improving: 
+  <strong>ETH/BNB/ERC20/BEP20 Address:</strong> 0x00fC876d03172279E04CC30E5edCE103c3d23C1A (ETH/BSC network)
+</p>
+<p align="center">
+  <a href="https://t.me/likhonsible">Follow me on Telegram</a> | <a href="https://twitter.com/likhonsible">Follow me on Twitter</a>
+</p>
+```
