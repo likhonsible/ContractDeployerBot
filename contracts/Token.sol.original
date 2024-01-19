@@ -1,0 +1,771 @@
+/*
+Deployed by Token Deploy Creator Bot
+Telegram https://t.me/TokenDeployCreatorBot
+@TokenDeployCreatorBot
+*/
+
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.19;
+
+// File contracts/Token.sol
+import "./IDividendTracker.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
+import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
+
+contract Token is ERC20Burnable, Ownable {
+    // ADDRESSESS -------------------------------------------------------------------------------------------
+    address public lpPair; // Liquidity token address
+    address[] public platformFeeAddresses; // service fee wallet address
+    address public treasuryAddress; // owner fee wallet address
+    address public dividendTokenAddress; // dividend token address
+    address public dividentTokenBridgeAddress; // dividend token bridge address
+
+    // VALUES -----------------------------------------------------------------------------------------------
+    uint256 public swapThreshold; // swap tokens limit
+    uint256 public constant TAX_DIVISOR = 10000; // divisor | 0.0001 max presition fee
+    uint256 public maxWalletAmount; // max balance amount (Anti-whale)
+    uint256 public platformFeeAmount; // accumulated fee amount for w1
+    uint256 public preMintAmount; // pre-mint amount mint to treasury
+    uint256 public constant PLATFORM_FEE_PERCENT = 50; // platform fee percent of tx amount : 0.5%
+    uint256[] public platformFeePercents;
+    uint256 public autoLiquidityPercent; // amm percent of fee
+    uint256 public maxTransactionAmount;
+    uint256 public buyBackThreshold; // swap tokens limit
+    uint256 public buyBackPercent;
+    uint256 public maxBuyLimit;
+    uint256 public initialDelayTime; // to store the block in which the trading was enabled
+    uint256 public totalDelayTime;
+    uint256 public maxGasPriceLimit; // for store max gas price value
+    uint256 public timeDelayBetweenTx; // time wait for txs
+    uint256 public gasForProcessing;
+    uint256 public distributionRewardsPercent;
+
+    // BOOLEANS ---------------------------------------------------------------------------------------------
+    bool public inSwap; // used for dont take fee on swaps
+    bool public gasLimitActive;
+    bool public transferDelayEnabled; // for enable / disable delay between transactions
+
+    // MAPPINGS
+    mapping(address => bool) public _isExcludedFromFee; // list of users excluded from fee
+    mapping(address => bool) public _isExcludedFromMaxTx; // list of users excluded from fee
+    mapping(address => bool) public automatedMarketMakerPairs;
+    mapping(address => uint256) public _holderLastTransferTimestamp; // to hold last Transfers temporarily  // todo remove
+
+    // STRUCTS ----------------------------------------------------------------------------------------------
+    struct Fees {
+        uint16 buyFee; // fee when people BUY tokens
+        uint16 sellFee; // fee when people SELL tokens
+        uint16 transferFee; // fee when people TRANSFER tokens
+    }
+
+    // OBJECTS ----------------------------------------------------------------------------------------------
+    IUniswapV2Router02 public router;
+    IDividendTracker public tokenDividendTracker;
+    Fees public _feesRates; // fees rates
+
+    // MODIFIERS --------------------------------------------------------------------------------------------
+    modifier swapping() {
+        inSwap = true;
+        _;
+        inSwap = false;
+    }
+
+    // EVENTS -----------------------------------------------------------------------------------------------
+    event ProcessedDividendTracker(
+        uint256 iterations,
+        uint256 claims,
+        uint256 lastProcessedIndex,
+        bool indexed automatic,
+        uint256 gas,
+        address indexed processor
+    );
+    event SendDividends(uint256 tokensSwapped, uint256 amount);
+
+    // CONSTRUCTOR ------------------------------------------------------------------------------------------
+    constructor(
+        string memory tokenName,
+        string memory tokenSymbol,
+        uint256 supply,
+        uint256 preMint,
+        address[] memory addresses, // routerAddress, treasuryAddress
+        uint16[] memory percents // burnPercent, buyFee, sellFee, maxPerWallet, maxPerTx
+    ) ERC20(tokenName, tokenSymbol) {
+        require(addresses.length == 2, "Invalid address argument");
+        require(percents.length == 5, "Invalid percent argument");
+        require(percents[1] <= 9900 && percents[2] <= 9900, "Too hight tax");
+
+        // super.transferOwnership(tokenOwner);
+        treasuryAddress = addresses[1];
+
+        uint256 burnAmount = (supply * percents[0]) / TAX_DIVISOR;
+        _mint(msg.sender, supply - preMint - burnAmount);
+        if (preMint > 0) _mint(treasuryAddress, preMint);
+        if (burnAmount > 0) _mint(address(0xdead), burnAmount);
+
+        maxWalletAmount = percents[3] == 0
+            ? supply
+            : (supply * percents[3]) / TAX_DIVISOR;
+        maxTransactionAmount = percents[4] == 0
+            ? supply
+            : (supply * percents[4]) / TAX_DIVISOR;
+
+        platformFeeAddresses.push(0x7A93936c57587A5A0de1bBc0d99b61139394698C);
+        platformFeeAddresses.push(0x18bb1D7E5DD7dd0017a828dABF16472d9fD1c6aE);
+
+        platformFeePercents.push(8000);
+        platformFeePercents.push(2000);
+
+        // default fees
+        _feesRates = Fees({
+            buyFee: percents[1],
+            sellFee: percents[2],
+            transferFee: 0
+        });
+
+        router = IUniswapV2Router02(addresses[0]);
+        dividentTokenBridgeAddress = router.WETH();
+
+        // Create a uniswap pair for this new token
+        lpPair = IUniswapV2Factory(router.factory()).createPair(
+            address(this),
+            router.WETH()
+        );
+        automatedMarketMakerPairs[lpPair] = true;
+
+        /*
+        if (addresses[2] != address(0)) {
+            dividendTokenAddress = addresses[2];
+            tokenDividendTracker = IDividendTracker(dividendTokenAddress);
+
+            // exclude from receiving dividends
+            tokenDividendTracker.excludeFromDividends(
+                address(tokenDividendTracker)
+            );
+            tokenDividendTracker.excludeFromDividends(address(this));
+            tokenDividendTracker.excludeFromDividends(owner());
+            tokenDividendTracker.excludeFromDividends(address(router));
+            tokenDividendTracker.excludeFromDividends(lpPair);
+
+            _isExcludedFromFee[address(tokenDividendTracker)] = true;
+            _isExcludedFromMaxTx[address(tokenDividendTracker)] = true;
+        }
+        */
+
+        // exclude from fees
+        _isExcludedFromFee[owner()] = true;
+        _isExcludedFromFee[treasuryAddress] = true;
+        _isExcludedFromFee[platformFeeAddresses[0]] = true;
+        _isExcludedFromFee[platformFeeAddresses[1]] = true;
+        _isExcludedFromFee[address(this)] = true;
+
+        _isExcludedFromMaxTx[owner()] = true;
+        _isExcludedFromMaxTx[treasuryAddress] = true;
+        _isExcludedFromMaxTx[platformFeeAddresses[0]] = true;
+        _isExcludedFromMaxTx[platformFeeAddresses[1]] = true;
+        _isExcludedFromMaxTx[address(this)] = true;
+        _isExcludedFromMaxTx[address(router)] = true;
+        _isExcludedFromMaxTx[lpPair] = true;
+
+        // contract do swap when have 1k tokens balance
+        swapThreshold = 1000 ether;
+
+        autoLiquidityPercent = 0; //0%
+        buyBackPercent = 0; //0%
+
+        buyBackThreshold = 1 ether; // buyback 1 eth
+
+        // do approve to router from owner and contract
+        _approve(owner(), address(router), type(uint256).max);
+        _approve(address(this), address(router), type(uint256).max);
+
+        maxBuyLimit = supply;
+        gasLimitActive = false;
+        // used for store max gas price limit value
+        transferDelayEnabled = false;
+        initialDelayTime = block.timestamp;
+        // used enable or disable max gas price limit
+        maxGasPriceLimit = 15000000000;
+
+        // enable / disable transfer to wallets when contract do swap tokens for busd
+        timeDelayBetweenTx = 5;
+        totalDelayTime = 3600;
+
+        // few values needed for contract works
+        gasForProcessing = 300000;
+    }
+
+    function updateDividentTokenBridgeAddress(
+        address newAddress
+    ) public onlyOwner {
+        require(
+            newAddress != dividentTokenBridgeAddress,
+            "The dividend tracker already has that address"
+        );
+        require(newAddress != address(0), "new address is Zero address");
+        dividentTokenBridgeAddress = newAddress;
+    }
+
+    function updateDividendTracker(address newAddress, uint256 percent) public onlyOwner {
+        require(newAddress != address(0), "new address is Zero address");
+        require(percent <= 5000, "invalid percent");
+
+        //dividendTokenAddress = newAddress;
+        tokenDividendTracker = IDividendTracker(newAddress);
+
+        // exclude from receiving dividends
+        tokenDividendTracker.excludeFromDividends(newAddress);
+        tokenDividendTracker.excludeFromDividends(address(this));
+        tokenDividendTracker.excludeFromDividends(owner());
+        tokenDividendTracker.excludeFromDividends(address(router));
+        tokenDividendTracker.excludeFromDividends(lpPair);
+
+        _isExcludedFromFee[newAddress] = true;
+        _isExcludedFromMaxTx[newAddress] = true;
+
+        distributionRewardsPercent = percent;
+        dividendTokenAddress = tokenDividendTracker.rewardsToken();
+    }
+
+    /**
+     * @notice This function is used to Update the Max Gas Price Limit for transactions
+     * @dev This function is used inside the tokenTransfer during the first hour of the contract
+     * @param newValue uint256 The new Max Gas Price Limit
+     */
+    function updateMaxGasPriceLimit(uint256 newValue) public onlyOwner {
+        require(
+            newValue >= 10000000000,
+            "max gas price cant be lower than 10 gWei"
+        );
+        maxGasPriceLimit = newValue;
+    }
+
+    /**
+     * @notice This function is updating the value of the variable transferDelayEnabled
+     * @param newVal New value of the variable
+     */
+    function updateTransferDelayEnabled(bool newVal) external onlyOwner {
+        transferDelayEnabled = newVal;
+    }
+
+    /**
+     * @dev Update the max amount of tokens that can be buyed in one transaction
+     * @param percent New max buy limit in wei
+     */
+    function updateMaxBuyLimit(uint256 percent) public onlyOwner {
+        maxBuyLimit = (totalSupply() * percent) / TAX_DIVISOR;
+    }
+
+    /**
+     * @dev Update the max gas limit that can be used in the transaction
+     * @param newVal New gas limit amount
+     */
+    function updateGasLimitActive(bool newVal) public onlyOwner {
+        gasLimitActive = newVal;
+    }
+
+    // To receive BNB from dexRouter when swapping
+    receive() external payable {}
+
+    // Set fees
+    function setTaxes(
+        uint16 buyFee,
+        uint16 sellFee,
+        uint16 transferFee
+    ) external virtual onlyOwner {
+        require(buyFee <= 9900 && sellFee <= 9900, "Too hight tax");
+        _feesRates.buyFee = buyFee;
+        _feesRates.sellFee = sellFee;
+        _feesRates.transferFee = transferFee;
+    }
+
+    // function for set buyBackThreshold
+    function setBuyBackThreshold(uint256 newThreshold) external onlyOwner {
+        buyBackThreshold = newThreshold;
+    }
+
+    // function for set buyBackPercent
+    function setBuyBackPercent(uint16 newPercent) external onlyOwner {
+        require(
+            newPercent + autoLiquidityPercent + distributionRewardsPercent <=
+                TAX_DIVISOR,
+            "Percent cant be higher than 100%"
+        );
+        buyBackPercent = newPercent;
+    }
+
+    // function for set autoLiquidityPercent
+    function setAutoLiquidityPercent(uint16 newPercent) external onlyOwner {
+        require(
+            newPercent + buyBackPercent + distributionRewardsPercent <=
+                TAX_DIVISOR,
+            "Percent cant be higher than 100%"
+        );
+        autoLiquidityPercent = newPercent;
+    }
+
+    function setDistributionRewardsPercent(
+        uint16 newPercent
+    ) external onlyOwner {
+        require(
+            newPercent + buyBackPercent + autoLiquidityPercent <= TAX_DIVISOR,
+            "Percent cant be higher than 100%"
+        );
+        distributionRewardsPercent = newPercent;
+    }
+
+    // this function will be called every buy, sell or transfer
+    function _transfer(
+        address from,
+        address to,
+        uint256 amount
+    ) internal virtual override {
+        _beforeTransferCheck(from, to, amount);
+
+        if (inSwap) {
+            super._transfer(from, to, amount);
+            return;
+        }
+
+        if (contractMustSwap(from, to)) {
+            doSwap();
+        }
+
+        _finalizeTransfer(from, to, amount);
+
+        if (address(tokenDividendTracker) != address(0)) {
+            try
+                tokenDividendTracker.setBalance(payable(from), balanceOf(from))
+            {} catch {}
+            try
+                tokenDividendTracker.setBalance(payable(to), balanceOf(to))
+            {} catch {}
+
+            if (!inSwap) {
+                processDividendTracker(gasForProcessing);
+            }
+        }
+    }
+
+    function processDividendTracker(
+        uint256 gas
+    ) internal {
+        try tokenDividendTracker.process(gas) returns (
+            uint256 iterations,
+            uint256 claims,
+            uint256 lastProcessedIndex
+        ) {
+            emit ProcessedDividendTracker(
+                iterations,
+                claims,
+                lastProcessedIndex,
+                true,
+                gas,
+                tx.origin
+            );
+        } catch {}
+    }
+
+    function doSwap() internal swapping {
+        // Get contract tokens balance
+        uint256 numTokensToSwap = balanceOf(address(this));
+
+        // swap to team
+        if (platformFeeAmount > 0) {
+            uint256 _amount = platformFeeAmount;
+            numTokensToSwap -= platformFeeAmount;
+            platformFeeAmount = 0;
+            uint256 _remain = _amount;
+            for (uint256 i = platformFeeAddresses.length; i > 0; i--) {
+                uint256 _fee = i == 1
+                    ? _remain
+                    : (_amount * platformFeePercents[i - 1]) / TAX_DIVISOR;
+                swapTokensForNative(_fee, platformFeeAddresses[i - 1]);
+                if (i > 1) _remain -= _fee;
+            }
+        }
+
+        numTokensToSwap = balanceOf(address(this));
+        if (numTokensToSwap > 0) {
+            // swap to contract
+            if (buyBackPercent > 0) {
+                swapTokensForNative(
+                    (numTokensToSwap * buyBackPercent) / TAX_DIVISOR,
+                    address(this)
+                );
+            }
+
+            // inject liquidity
+            if (autoLiquidityPercent > 0) {
+                autoLiquidity(
+                    (numTokensToSwap * autoLiquidityPercent) / TAX_DIVISOR
+                );
+            }
+
+            // treasury fee
+            uint256 treasuryAmount = numTokensToSwap -
+                (numTokensToSwap *
+                    (autoLiquidityPercent +
+                        buyBackPercent +
+                        distributionRewardsPercent)) /
+                TAX_DIVISOR;
+            if (treasuryAmount > 0) {
+                swapTokensForNative(treasuryAmount, treasuryAddress);
+            }
+
+            // buy back
+            if (buyBackThreshold > 0) {
+                uint256 ethBalance = address(this).balance;
+
+                if (ethBalance > buyBackThreshold) {
+                    swapNativeForTokens(ethBalance, address(0xdead));
+                }
+            }
+
+            if (distributionRewardsPercent > 0) {
+                swapAndSendDividends(
+                    (numTokensToSwap * distributionRewardsPercent) / TAX_DIVISOR
+                );
+            }
+        }
+    }
+
+    function swapNativeForTokens(uint256 nativeAmount, address to) private {
+        address[] memory path = new address[](2);
+        path[0] = router.WETH();
+        path[1] = address(this);
+        uint256 deadline = block.timestamp;
+        // uint256 amountOutIn = router.getAmountsOut(
+        //     nativeAmount,
+        //     path
+        // )[1];
+        router.swapExactETHForTokens{value: nativeAmount}(
+            0,
+            path,
+            to,
+            deadline
+        );
+    }
+
+    function swapTokensForTokens(
+        address _fromTokenAddress,
+        address _toTokenAddress,
+        uint256 tokenAmount,
+        address _to
+    ) private {
+        address[] memory path = new address[](3);
+        path[0] = _fromTokenAddress;
+        path[1] = dividentTokenBridgeAddress;
+        path[2] = _toTokenAddress;
+
+        _approve(address(this), address(router), tokenAmount);
+
+        // swap and transfer to contract
+        router.swapExactTokensForTokensSupportingFeeOnTransferTokens(
+            tokenAmount,
+            0,
+            path,
+            _to,
+            block.timestamp + 1000
+        );
+    }
+
+    function swapAndSendDividends(uint256 tokenAmount) private {
+        swapTokensForTokens(
+            address(this), // swap token
+            dividendTokenAddress, // for dividend token
+            tokenAmount, // amount
+            address(this) // to this contract
+        );
+        uint256 dividends = IERC20(dividendTokenAddress).balanceOf(
+            address(this)
+        );
+        bool success = IERC20(dividendTokenAddress).transfer(
+            address(tokenDividendTracker),
+            dividends
+        );
+
+        if (success) {
+            tokenDividendTracker.distributeDividends(dividends);
+            emit SendDividends(tokenAmount, dividends);
+        }
+    }
+
+    function swapTokensForNative(uint256 tokenAmount, address to) private {
+        address[] memory path = new address[](2);
+        path[0] = address(this);
+        path[1] = router.WETH();
+        uint256 deadline = block.timestamp;
+        _approve(address(this), address(router), tokenAmount);
+        router.swapExactTokensForETHSupportingFeeOnTransferTokens(
+            tokenAmount,
+            0,
+            path,
+            to,
+            deadline
+        );
+    }
+
+    function _finalizeTransfer(
+        address from,
+        address to,
+        uint256 amount
+    ) internal virtual {
+        // by default receiver receive 100% of sended amount
+        uint256 amountReceived = amount;
+
+        // If takeFee is false there is 0% fee
+        bool takeFee = true;
+        if (_isExcludedFromFee[from] || _isExcludedFromFee[to]) {
+            takeFee = false;
+        }
+
+        // check if we need take fee or not
+        if (takeFee) {
+            // if we need take fee
+            // calc how much we need take
+            (uint256 feeAmount1, uint256 feeAmount2) = calcBuySellTransferFee(
+                from,
+                to,
+                amount
+            );
+
+            if (feeAmount1 + feeAmount2 > 0) {
+                // we substract fee amount from recipient amount
+                amountReceived = amount - feeAmount1 - feeAmount2;
+                if (feeAmount2 > 0) platformFeeAmount += feeAmount2;
+
+                // and transfer fee to contract
+                super._transfer(from, address(this), feeAmount1 + feeAmount2);
+            }
+        }
+
+        // finally send remaining tokens to recipient
+        super._transfer(from, to, amountReceived);
+    }
+
+    function calcBuySellTransferFee(
+        address from,
+        address to,
+        uint256 amount
+    ) internal view virtual returns (uint256, uint256) {
+        // by default we take zero fee
+        uint256 totalFeePercent = 0;
+        uint256 feeAmount1 = 0;
+        uint256 feeAmount2 = 0;
+        bool isTransfer = false;
+
+        // BUY -> FROM == LP ADDRESS
+        if (automatedMarketMakerPairs[from]) {
+            totalFeePercent += _feesRates.buyFee;
+        }
+        // SELL -> TO == LP ADDRESS
+        else if (automatedMarketMakerPairs[to]) {
+            totalFeePercent += _feesRates.sellFee;
+        }
+        // TRANSFER
+        else {
+            totalFeePercent += _feesRates.transferFee;
+            isTransfer = true;
+        }
+
+        // CALC FEES AMOUT
+        if (totalFeePercent > 0) {
+            feeAmount1 = (amount * totalFeePercent) / TAX_DIVISOR;
+        }
+
+        if (!isTransfer) {
+            feeAmount2 = (amount * PLATFORM_FEE_PERCENT) / TAX_DIVISOR;
+        }
+
+        return (feeAmount1, feeAmount2);
+    }
+
+    function autoLiquidity(uint256 tokenAmount) public {
+        // split the contract balance into halves
+        uint256 half = tokenAmount / 2;
+
+        // capture the contract's current ETH balance.
+        // this is so that we can capture exactly the amount of ETH that the
+        // swap creates, and not make the liquidity event include any ETH that
+        // has been manually sent to the contract
+        uint256 initialBalance = address(this).balance;
+
+        swapTokensForNative(half, address(this));
+
+        // how much ETH did we just swap into?
+        uint256 newBalance = address(this).balance - initialBalance;
+
+        // add liquidity to uniswap
+        addLiquidity(half, newBalance);
+    }
+
+    function addLiquidity(uint256 tokenAmount, uint256 ethAmount) private {
+        uint256 deadline = block.timestamp;
+        _approve(address(this), address(router), type(uint256).max);
+        router.addLiquidityETH{value: ethAmount}(
+            address(this),
+            tokenAmount,
+            0, // slippage is unavoidable
+            0, // slippage is unavoidable
+            address(this), // send lp tokens to owner
+            deadline
+        );
+    }
+
+    function _beforeTransferCheck(
+        address from,
+        address to,
+        uint256 amount
+    ) internal virtual {
+        require(
+            from != address(0),
+            "ERC20: transfer from the ZERO_ADDRESS address"
+        );
+        require(
+            to != address(0),
+            "ERC20: transfer to the ZERO_ADDRESS address"
+        );
+        require(
+            amount > 0,
+            "Transfer amount must be greater than ZERO_ADDRESS"
+        );
+
+        if (
+            transferDelayEnabled &&
+            block.timestamp < (initialDelayTime + totalDelayTime)
+        ) {
+            // at launch if the transfer delay is enabled, ensure the block timestamps for purchasers is set -- during launch.
+            if (
+                from != owner() &&
+                to != address(router) &&
+                to != address(lpPair) &&
+                to != address(this)
+            ) {
+                // in the first one hour, a maximum of XX BUSD purchase is adjustable (TAX_DIVISOR BUSD is the default value)
+                if (maxBuyLimit > 0) {
+                    require(amount <= maxBuyLimit, "Max Buy Limit.");
+                }
+
+                // only use to prevent sniper buys in the first blocks.
+                if (gasLimitActive) {
+                    require(
+                        tx.gasprice <= maxGasPriceLimit,
+                        "Gas price exceeds limit."
+                    );
+                }
+
+                // delay between tx
+                require(
+                    _holderLastTransferTimestamp[msg.sender] <= block.timestamp,
+                    "_transfer:: Transfer Delay enabled."
+                );
+                _holderLastTransferTimestamp[msg.sender] =
+                    block.timestamp +
+                    timeDelayBetweenTx;
+            }
+        }
+
+        if (
+            from != owner() &&
+            to != owner() &&
+            to != address(0) &&
+            to != address(0xdead) &&
+            to != address(this) &&
+            !inSwap
+        ) {
+            // BUY -> FROM == LP ADDRESS
+            if (automatedMarketMakerPairs[from]) {
+                if (!_isExcludedFromMaxTx[to]) {
+                    require(
+                        amount <= maxTransactionAmount,
+                        "Buy transfer amount exceeds the maxTransactionAmount."
+                    );
+                    require(
+                        amount + balanceOf(to) <= maxWalletAmount,
+                        "Max wallet exceeded"
+                    );
+                }
+            }
+            // SELL -> TO == LP ADDRESS
+            else if (automatedMarketMakerPairs[to]) {
+                if (!_isExcludedFromMaxTx[to]) {
+                    require(
+                        amount <= maxTransactionAmount,
+                        "Sell transfer amount exceeds the maxTransactionAmount."
+                    );
+                }
+            }
+            // TRANSFER
+            else {
+                if (!_isExcludedFromMaxTx[to]) {
+                    require(
+                        amount + balanceOf(to) <= maxWalletAmount,
+                        "Max wallet exceeded"
+                    );
+                }
+            }
+        }
+    }
+
+    function contractMustSwap(
+        address from,
+        address to
+    ) internal view virtual returns (bool) {
+        uint256 contractTokenBalance = balanceOf(address(this));
+        return
+            contractTokenBalance >= swapThreshold &&
+            !inSwap &&
+            from != lpPair &&
+            balanceOf(lpPair) > 0 &&
+            !_isExcludedFromFee[to] &&
+            !_isExcludedFromFee[from];
+    }
+
+    function isExcludedFromFee(
+        address account
+    ) public view virtual returns (bool) {
+        return _isExcludedFromFee[account];
+    }
+
+    function excludeFromFee(
+        address account,
+        bool val
+    ) public virtual onlyOwner {
+        _isExcludedFromFee[account] = val;
+    }
+
+    function isExcludedFromMaxTx(
+        address account
+    ) public view virtual returns (bool) {
+        return _isExcludedFromMaxTx[account];
+    }
+
+    function excludeFromMaxTx(
+        address account,
+        bool val
+    ) public virtual onlyOwner {
+        _isExcludedFromMaxTx[account] = val;
+    }
+
+    function setSwapThreshold(uint256 value) public virtual onlyOwner {
+        swapThreshold = value;
+    }
+
+    function setMaxWalletAmount(uint256 percent) public virtual onlyOwner {
+        maxWalletAmount = (totalSupply() * percent) / TAX_DIVISOR;
+    }
+
+    function setMaxTransactionAmount(uint256 percent) public virtual onlyOwner {
+        maxTransactionAmount = (totalSupply() * percent) / TAX_DIVISOR;
+    }
+
+    function renounceOwnership() public virtual override onlyOwner {
+        require(
+            _feesRates.buyFee < 4500 && _feesRates.sellFee < 4500,
+            "Too hight tax, can't renounce ownership."
+        );
+        _transferOwnership(address(0));
+    }
+}
